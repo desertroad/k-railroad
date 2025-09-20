@@ -4,6 +4,7 @@
 @file:DependsOn("org.jsoup:jsoup:1.21.2")
 @file:DependsOn("org.apache.commons:commons-csv:1.14.1")
 
+
 import org.apache.commons.csv.CSVFormat
 import org.apache.commons.csv.CSVPrinter
 import org.apache.commons.io.output.CloseShieldOutputStream
@@ -12,22 +13,10 @@ import org.jsoup.Jsoup
 import java.io.File
 
 
-fun parseDMS(dms: String): Float {
-    val trimmed = dms.trim()
-    val sign = when {
-        trimmed.startsWith("북위") || trimmed.startsWith("동경") -> +1
-        trimmed.startsWith("남위") || trimmed.startsWith("서경") -> -1
-        else -> throw IllegalArgumentException()
-    }
-
-    val regex = """(\d+)°\s*(\d+)′\s*([\d.]+)″""".toRegex()
-    val match = regex.find(trimmed) ?: throw IllegalArgumentException("Invalid DMS format")
-    val (deg, min, sec) = match.destructured
-
-    return sign * (deg.toFloat() + min.toFloat() / 60 + sec.toFloat() / 3600)
-}
-
-
+/**
+ * 공공 데이터에서 관련 내용을 찾지 못함.
+ * 대안으로 나무위키 활용
+ */
 val document = Jsoup.connect("https://namu.wiki/w/한국철도공사/역명코드").get()
 
 val data = document.select("table.Agu2vgbF")[1]
@@ -37,7 +26,7 @@ val data = document.select("table.Agu2vgbF")[1]
 
         if (
             cells[0].selectFirst("del") != null ||
-            "†" in cells[4].text()
+            "†" in cells[4].text()  // 폐역
         ) return@mapNotNull null
 
         cells.mapIndexed { index, cell ->
@@ -53,8 +42,10 @@ val data = document.select("table.Agu2vgbF")[1]
             }
         }
     }
+    .map { it.filterIndexed { index, _ -> index != 4 } }
 
 
+// 위치 정보는 위키에서 추출
 val conversion = mapOf(
     "가야" to "가야역_(한국철도공사)",
     "강구" to "강구역_(영덕)",
@@ -117,27 +108,23 @@ fun getLatLng(stationName: String): List<Float>? {
     val pageName = conversion.getOrDefault(stationName, "${stationName}역")
     return runCatching {
         Jsoup.connect("https://ko.wikipedia.org/wiki/$pageName").get()
-            .selectFirst(".geo-dms")!!.run {
-                val latitude = parseDMS(selectFirst(".latitude")!!.text())
-                val longitude = parseDMS(selectFirst(".longitude")!!.text())
-
-                listOf(latitude, longitude)
-            }
+            .selectFirst("span.geo")!!.text()
+            .split(';')
+            .map { it.trim().toFloat() }
     }.getOrNull()
 }
-
 
 
 TeeOutputStream(
     CloseShieldOutputStream.wrap(System.out),
     File("../data/processed/stations.csv").outputStream()
 ).use { tee ->
-    CSVPrinter(tee.writer(), CSVFormat.DEFAULT).use { printer ->
-        printer.printRecord(data[0] + "좌표")
+    val printer = CSVPrinter(tee.writer(), CSVFormat.DEFAULT)
 
-        data.drop(1).forEach {
-            printer.printRecord(it + getLatLng(it[1]))
-        }
+    printer.printRecord(data[0] + "좌표")
+
+    data.drop(1).forEach {
+        printer.printRecord(it + getLatLng(it[1]))
     }
 }
 

@@ -1,0 +1,4 @@
+- `data/processed/stations.csv`
+  - https://namu.wiki/w/한국철도공사/역명코드
+  - https://ko.wikipedia.org/
+- `notebooks/geo/kr.json` : https://simplemaps.com/gis/country/kr
